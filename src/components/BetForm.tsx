@@ -1,11 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useBetting } from '@/contexts/BettingContext';
 import { 
@@ -42,6 +40,24 @@ export const BetForm: React.FC = () => {
     isValueBet: false
   });
 
+  // Carregar dados do localStorage quando o componente for montado
+  useEffect(() => {
+    const savedFormData = localStorage.getItem('bet-form-data');
+    if (savedFormData) {
+      try {
+        const parsedData = JSON.parse(savedFormData);
+        setFormData(parsedData);
+      } catch (error) {
+        console.error('Erro ao carregar dados salvos:', error);
+      }
+    }
+  }, []);
+
+  // Salvar dados no localStorage sempre que formData mudar
+  useEffect(() => {
+    localStorage.setItem('bet-form-data', JSON.stringify(formData));
+  }, [formData]);
+
   // Recalcular valores quando os campos relevantes mudarem
   useEffect(() => {
     const odds = parseFloat(formData.odds) || 0;
@@ -73,6 +89,16 @@ export const BetForm: React.FC = () => {
     }
   }, [formData.odds, formData.estimatedProbability, formData.stakeAmount, bankrollManagement]);
 
+  // Atualizar o evento automaticamente quando os times mudarem
+  useEffect(() => {
+    if (formData.homeTeam && formData.awayTeam) {
+      setFormData(prev => ({
+        ...prev,
+        event: `${formData.homeTeam} vs ${formData.awayTeam}`
+      }));
+    }
+  }, [formData.homeTeam, formData.awayTeam]);
+
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -91,10 +117,39 @@ export const BetForm: React.FC = () => {
     const stake = parseFloat(formData.stakeAmount);
     const estimatedProb = parseFloat(formData.estimatedProbability);
     
-    if (!formData.event || !formData.homeTeam || !formData.awayTeam || 
-        !formData.league || !formData.betType || odds <= 0 || stake <= 0 || 
-        estimatedProb <= 0 || estimatedProb > 100) {
-      toast.error('Por favor, preencha todos os campos obrigatórios corretamente.');
+    // Validação mais específica
+    if (!formData.homeTeam.trim()) {
+      toast.error('Por favor, preencha o nome do time da casa.');
+      return;
+    }
+    
+    if (!formData.awayTeam.trim()) {
+      toast.error('Por favor, preencha o nome do time visitante.');
+      return;
+    }
+    
+    if (!formData.league.trim()) {
+      toast.error('Por favor, preencha a liga/competição.');
+      return;
+    }
+    
+    if (!formData.betType) {
+      toast.error('Por favor, selecione o tipo de aposta.');
+      return;
+    }
+    
+    if (isNaN(odds) || odds <= 1) {
+      toast.error('Por favor, insira uma odd válida (maior que 1.00).');
+      return;
+    }
+    
+    if (isNaN(stake) || stake <= 0) {
+      toast.error('Por favor, insira um valor de aposta válido (maior que 0).');
+      return;
+    }
+    
+    if (isNaN(estimatedProb) || estimatedProb <= 0 || estimatedProb >= 100) {
+      toast.error('Por favor, insira uma probabilidade estimada válida (entre 1% e 99%).');
       return;
     }
 
@@ -123,8 +178,8 @@ export const BetForm: React.FC = () => {
 
     addRecord(newRecord);
     
-    // Reset form
-    setFormData({
+    // Limpar dados do formulário e localStorage após registrar a aposta
+    const resetFormData = {
       date: new Date().toISOString().split('T')[0],
       event: '',
       homeTeam: '',
@@ -134,8 +189,11 @@ export const BetForm: React.FC = () => {
       odds: '',
       stakeAmount: '',
       estimatedProbability: '',
-      result: 'pending'
-    });
+      result: 'pending' as const
+    };
+    
+    setFormData(resetFormData);
+    localStorage.removeItem('bet-form-data');
 
     toast.success('Aposta registrada com sucesso!');
   };
@@ -171,6 +229,7 @@ export const BetForm: React.FC = () => {
                     value={formData.date}
                     onChange={(e) => handleInputChange('date', e.target.value)}
                     className="mt-1"
+                    required
                   />
                 </div>
                 
@@ -182,6 +241,7 @@ export const BetForm: React.FC = () => {
                     value={formData.league}
                     onChange={(e) => handleInputChange('league', e.target.value)}
                     className="mt-1"
+                    required
                   />
                 </div>
               </div>
@@ -195,6 +255,7 @@ export const BetForm: React.FC = () => {
                     value={formData.homeTeam}
                     onChange={(e) => handleInputChange('homeTeam', e.target.value)}
                     className="mt-1"
+                    required
                   />
                 </div>
                 
@@ -206,6 +267,7 @@ export const BetForm: React.FC = () => {
                     value={formData.awayTeam}
                     onChange={(e) => handleInputChange('awayTeam', e.target.value)}
                     className="mt-1"
+                    required
                   />
                 </div>
               </div>
@@ -215,7 +277,7 @@ export const BetForm: React.FC = () => {
                 <Input
                   id="event"
                   placeholder="Será preenchido automaticamente"
-                  value={`${formData.homeTeam} vs ${formData.awayTeam}`}
+                  value={formData.event}
                   readOnly
                   className="mt-1 bg-gray-50"
                 />
@@ -224,7 +286,7 @@ export const BetForm: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="betType">Tipo de Aposta *</Label>
-                  <Select value={formData.betType} onValueChange={(value) => handleInputChange('betType', value)}>
+                  <Select value={formData.betType} onValueChange={(value) => handleInputChange('betType', value)} required>
                     <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Selecione o mercado" />
                     </SelectTrigger>
@@ -262,11 +324,12 @@ export const BetForm: React.FC = () => {
                     id="odds"
                     type="number"
                     step="0.01"
-                    min="1"
+                    min="1.01"
                     placeholder="Ex: 2.10"
                     value={formData.odds}
                     onChange={(e) => handleInputChange('odds', e.target.value)}
                     className="mt-1"
+                    required
                   />
                 </div>
 
@@ -281,6 +344,7 @@ export const BetForm: React.FC = () => {
                     value={formData.estimatedProbability}
                     onChange={(e) => handleInputChange('estimatedProbability', e.target.value)}
                     className="mt-1"
+                    required
                   />
                 </div>
 
@@ -291,10 +355,11 @@ export const BetForm: React.FC = () => {
                       id="stakeAmount"
                       type="number"
                       step="0.01"
-                      min="0"
+                      min="0.01"
                       placeholder="0.00"
                       value={formData.stakeAmount}
                       onChange={(e) => handleInputChange('stakeAmount', e.target.value)}
+                      required
                     />
                     {calculatedValues.suggestedStake > 0 && (
                       <Button
